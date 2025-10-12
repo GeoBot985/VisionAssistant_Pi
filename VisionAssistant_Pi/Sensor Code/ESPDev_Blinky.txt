@@ -1,0 +1,14 @@
+// Simple Blink for ESP32-WROOM-32
+
+#define LED_BUILTIN 2   // onboard blue LED
+
+void setup() {
+  pinMode(LED_BUILTIN, OUTPUT);
+}
+
+void loop() {
+  digitalWrite(LED_BUILTIN, HIGH);  // LED ON
+  delay(1000);                      // wait 1 second
+  digitalWrite(LED_BUILTIN, LOW);   // LED OFF
+  delay(1000);                      // wait 1 second
+}

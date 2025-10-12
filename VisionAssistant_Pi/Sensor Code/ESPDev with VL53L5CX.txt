@@ -1,0 +1,58 @@
+#include <Wire.h>
+#include <SparkFun_VL53L5CX_Library.h>
+
+#define SDA_PIN 21
+#define SCL_PIN 22
+#define LED_PIN 2
+
+SparkFun_VL53L5CX myToF;
+VL53L5CX_ResultsData measurementData;
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+
+  delay(500);
+  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.setClock(100000);
+  delay(500);
+
+  Serial.println("Initializing VL53L5CX sensor...");
+
+  if (!myToF.begin()) {
+    Serial.println("Sensor not found. Check wiring!");
+    digitalWrite(LED_PIN, HIGH);
+    while (1);
+  }
+
+  Serial.println("VL53L5CX online!");
+  myToF.setResolution(8 * 8);
+  myToF.startRanging();
+  delay(1000);
+}
+
+void loop() {
+  if (myToF.isDataReady()) {
+    if (myToF.getRangingData(&measurementData)) {
+      // Blink LED once per frame
+      digitalWrite(LED_PIN, LOW);
+      delay(20);
+      digitalWrite(LED_PIN, HIGH);
+
+      // Print the full 8x8 array
+      Serial.println("----- 8x8 Distance Frame (mm) -----");
+      for (int y = 0; y < 8; y++) {
+        for (int x = 0; x < 8; x++) {
+          int i = y * 8 + x;
+          Serial.print(measurementData.distance_mm[i]);
+          Serial.print("\t");
+        }
+        Serial.println();
+      }
+      Serial.println("-----------------------------------\n");
+    }
+  }
+
+  delay(200);
+}

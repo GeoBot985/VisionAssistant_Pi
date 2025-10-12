@@ -1,0 +1,41 @@
+#define TRIG_PIN 5
+#define ECHO_PIN 18
+#define LED_PIN 2     // onboard blue LED (GPIO 2)
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, HIGH);  // default ON (error / idle state)
+}
+
+void loop() {
+  // Send 10µs trigger pulse
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  // Read echo duration
+  long duration = pulseIn(ECHO_PIN, HIGH, 25000); // timeout 25ms (~4m)
+
+  if (duration > 0) {
+    // Successful reading → blink LED once
+    float distance = duration * 0.0343 / 2.0;
+    Serial.print("Distance: ");
+    Serial.print(distance);
+    Serial.println(" cm");
+
+    digitalWrite(LED_PIN, LOW);   // LED off (start blink)
+    delay(50);                    // short blink
+    digitalWrite(LED_PIN, HIGH);  // LED on again
+  } else {
+    // No echo received
+    Serial.println("No echo received...");
+    digitalWrite(LED_PIN, HIGH);  // solid ON (error / idle)
+  }
+
+  delay(500); // half-second loop
+}

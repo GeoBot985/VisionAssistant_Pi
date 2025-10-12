@@ -1,0 +1,81 @@
+#include <Wire.h>
+#include <SparkFun_VL53L5CX_Library.h>
+
+#define TRIG_PIN 5
+#define ECHO_PIN 18
+#define LED_PIN  2
+#define SDA_PIN  21
+#define SCL_PIN  22
+
+SparkFun_VL53L5CX myToF;
+VL53L5CX_ResultsData measurementData;
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  digitalWrite(LED_PIN, LOW);
+
+  delay(500);
+  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.setClock(100000);
+  delay(500);
+
+  Serial.println("Initializing sensors...");
+
+  if (!myToF.begin()) {
+    Serial.println("VL53L5CX not detected!");
+    digitalWrite(LED_PIN, HIGH);
+    while (1);
+  }
+
+  Serial.println("VL53L5CX online!");
+  myToF.setResolution(8 * 8);
+  myToF.startRanging();
+  delay(1000);
+
+  digitalWrite(LED_PIN, HIGH); // steady = idle
+}
+
+float readUltrasonicCM() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  long duration = pulseIn(ECHO_PIN, HIGH, 25000);
+  if (duration == 0) return -1; // timeout
+  return duration * 0.0343 / 2.0;
+}
+
+void loop() {
+  bool gotToF = false;
+
+  if (myToF.isDataReady()) {
+    if (myToF.getRangingData(&measurementData)) {
+      gotToF = true;
+      int centerDist = measurementData.distance_mm[32];
+      Serial.print("ToF center: ");
+      Serial.print(centerDist);
+      Serial.print(" mm  |  ");
+    }
+  }
+
+  float usDist = readUltrasonicCM();
+  Serial.print("Ultrasonic: ");
+  if (usDist < 0)
+    Serial.println("timeout");
+  else
+    Serial.print(usDist), Serial.println(" cm");
+
+  // LED heartbeat
+  if (gotToF || usDist > 0) {
+    digitalWrite(LED_PIN, LOW);
+    delay(30);
+    digitalWrite(LED_PIN, HIGH);
+  }
+
+  delay(200);
+}
