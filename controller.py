@@ -12,8 +12,12 @@ from queue import Queue
 # === SENSOR MODULES ===
 from audio_feedback import beep
 from sensors.sensor_serial_bridge import run_bridge as sensor_sim_main
-from event_bus import EVENT_QUEUE, VISION_QUEUE
+import event_bus
 from sensors import sensor_processor as sp
+
+EVENT_QUEUE = event_bus.EVENT_QUEUE
+VISION_QUEUE = event_bus.VISION_QUEUE
+
 
 # === VISION MODULES ===
 from vision_caption.blip_model import load_blip
@@ -21,6 +25,10 @@ from vision_caption.captioner import generate_caption
 
 LAST_MANUAL_TRIGGER = 0
 VISION_COOLDOWN = 15  # seconds
+
+# === SETTINGS ===
+ENABLE_VISUALIZER = True   # ← set False to disable heatmap window
+
 
 TTS_QUEUE = Queue()
 
@@ -115,29 +123,53 @@ def tts_worker():
     """Worker thread that plays each queued text sequentially."""
     model_path = "/home/geo/piper_voices/en_US-amy-medium.onnx"
     while True:
-        text = TTS_QUEUE.get()
-        if text is None:
+        item = TTS_QUEUE.get()
+        if item is None:
             break
+
+        # Support either raw text or {text, start_time}
+        if isinstance(item, dict):
+            text = item.get("text", "")
+            start_time = item.get("start_time", None)
+        else:
+            text = str(item)
+            start_time = None
+
+        if not text:
+            continue
+
+        # ⏱️ measure latency right before playback
+        if start_time:
+            latency = time.time() - start_time
+            print(f"⏱️ Latency: {latency:.2f} s from camera trigger to audio start")
+
         cmd = (
             f'echo "{text}" | '
             f'piper --model {model_path} --output_file - | '
             f'pw-play -'
         )
         try:
-            subprocess.run(cmd, shell=True,
-                           stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL)
+            subprocess.run(
+                cmd,
+                shell=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
         except Exception as e:
             print(f"[TTS] error: {e}")
+
         time.sleep(0.1)   # brief gap between sentences
+
 
 # start once at launch
 threading.Thread(target=tts_worker, daemon=True).start()
 
-def speak_piper_async(text: str):
-    """Queue text for speech output."""
-    if text:
-        TTS_QUEUE.put(text)
+
+def speak_piper_async(item):
+    """Queue text (or dict with text/start_time) for speech output."""
+    if item:
+        TTS_QUEUE.put(item)
+
 
 def audio_task():
     print("🔊 Audio task started", flush=True)
@@ -158,11 +190,16 @@ def audio_task():
 
         elif etype == "tts":
             text = event.get("text", "").strip()
+            start_time = event.get("start_time", None)
+
             if not text or text == last_tts_text:
                 continue
             last_tts_text = text
-            print(f"[AUDIO] Speaking: {text}", flush=True)
-            speak_piper_async(text)
+
+            print(f"[AUDIO] Queued for speech: {text}", flush=True)
+            # ✅ Pass both text and start_time forward
+            speak_piper_async({"text": text, "start_time": start_time})
+
 
 
 # ============================================================
@@ -173,10 +210,15 @@ def vision_task():
     model, processor = load_blip()
     print("✅ Vision model ready (separate process)")
 
-    def run_caption(model, processor, img_path):
+    def run_caption(model, processor, img_path, start_time):
+        """Generate caption and push to audio queue with latency timing."""
         try:
             caption = generate_caption(model, processor, str(img_path))
-            EVENT_QUEUE.put({"type": "tts", "text": caption})
+            EVENT_QUEUE.put({
+                "type": "tts",
+                "text": caption,
+                "start_time": start_time   # ⏱️ forward timing info
+            })
             print(f"🖼️ Caption → {caption}")
         except Exception as e:
             print(f"⚠️ Caption error: {e}")
@@ -189,10 +231,13 @@ def vision_task():
         if event.get("type") == "vision_request":
             print("📸 Capturing and captioning...")
             img_path = Path("webcam.jpg")
+            start_time = time.time()       # ⏱️ mark trigger time
             capture_image(str(img_path))
             if img_path.exists():
                 threading.Thread(
-                    target=run_caption, args=(model, processor, img_path), daemon=True
+                    target=run_caption,
+                    args=(model, processor, img_path, start_time),
+                    daemon=True
                 ).start()
             else:
                 print("⚠️ Capture failed; no image.")
@@ -225,14 +270,20 @@ def main():
         t.start()
 
     try:
-        visualizer_task()
+        if ENABLE_VISUALIZER:
+            visualizer_task()
+        else:
+            print("🖼️ Visualizer disabled. Running headless mode...")
+            while True:
+                time.sleep(1)   # keep main thread alive
     except KeyboardInterrupt:
         print("\n🛑 Stopping VisionAssist…")
     finally:
         for _ in threads:
             EVENT_QUEUE.put(None)
-            VISION_QUEUE.put(None)
+        EVENT_QUEUE.put(None)
         print("✅ Shutdown complete.")
+
 
 
 if __name__ == "__main__":

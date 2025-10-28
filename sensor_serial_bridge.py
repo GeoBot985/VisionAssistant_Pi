@@ -29,6 +29,7 @@ def run_bridge():
             while True:
                 chunk = ser.read(256)
                 if not chunk:
+                    time.sleep(0.01)  # or 0.02 to yield CPU
                     continue
                 buf.extend(chunk)
 
@@ -58,11 +59,18 @@ def run_bridge():
                         dtype=np.float32
                     )[0]
 
-                    ts = datetime.now()
+                    # ✅ Add frame limiter here
+                    now = time.time()
+                    if 'last_frame_time' not in locals():
+                        last_frame_time = now
+                    if now - last_frame_time < 0.05:   # 20 Hz cap
+                        continue
+                    last_frame_time = now
 
-                    # ✅ send to shared processor instance
+                    ts = datetime.now()
                     sp.process_entry({"type": "TOF", "timestamp": ts, "values": tof.tolist()})
                     sp.process_entry({"type": "US", "timestamp": ts, "values": [ultrasonic]})
+
 
                     #print(f"[BRIDGE] Sent frame → ToF avg={np.mean(tof):.2f}m | US={ultrasonic:.1f}cm")
 
